@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pedidos QR</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .hero { text-align: center; padding: 40px 16px 24px; }
+    .hero h1 { font-size: 2rem; }
+    .acceso { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; transition: transform .1s; }
+    .acceso:hover { transform: translateY(-2px); border-color: var(--accent); }
+    .acceso .ic { font-size: 2.4rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <h1 id="nombre">Pedidos QR</h1>
+      <p class="muted">Elige la pantalla que vas a usar en este dispositivo.</p>
+      <div class="row" style="justify-content:center;margin-top:12px" id="sesion">
+        <a class="btn btn-primary" href="/login.html">🔐 Iniciar sesión (personal)</a>
+      </div>
+    </div>
+    <div class="grid grid-cards">
+      <a class="card acceso" href="/menu.html?mesa=1">
+        <span class="ic">📱</span><strong>Menú del cliente</strong>
+        <span class="muted small">Lo que ve el cliente al escanear el QR (ejemplo: mesa 1).</span>
+      </a>
+      <a class="card acceso" href="/cocina.html">
+        <span class="ic">👨‍🍳</span><strong>Cocina</strong>
+        <span class="muted small">Pedidos confirmados en tiempo real. Requiere usuario de cocinero.</span>
+      </a>
+      <a class="card acceso" href="/mesera.html">
+        <span class="ic">🛎️</span><strong>Meseros</strong>
+        <span class="muted small">Abrir y cerrar mesas, confirmar pedidos y cobrar. Requiere usuario de mesero.</span>
+      </a>
+      <a class="card acceso" href="/admin.html">
+        <span class="ic">📊</span><strong>Panel del jefe 🔒</strong>
+        <span class="muted small">Ventas, inventario, menú y códigos QR. Requiere iniciar sesión.</span>
+      </a>
+    </div>
+  </div>
+  <script src="/js/common.js"></script>
+  <script>
+    api('/api/config').then((c) => { document.getElementById('nombre').textContent = c.restaurantName; }).catch(() => {});
+
+    // Mostrar quién tiene la sesión abierta en este dispositivo
+    fetch('/api/auth/me').then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d) return;
+      const caja = document.getElementById('sesion');
+      caja.innerHTML = `
+        <span class="muted">Conectado como <strong>${esc(d.user.name)}</strong> · ${ROLES_TXT[d.user.role]}</span>
+        <a class="btn btn-sm btn-primary" href="${d.home}">Ir a mi pantalla</a>
+        <button class="btn btn-sm" type="button" id="salir">Cerrar sesión</button>`;
+      document.getElementById('salir').onclick = async () => {
+        try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+        location.reload();
+      };
+    }).catch(() => {});
+  </script>
+</body>
+</html>

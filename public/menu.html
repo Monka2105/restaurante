@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Menú</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    body { padding-bottom: 100px; }
+    .cats { display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 57px; z-index: 9; }
+    .cats .btn { white-space: nowrap; }
+    .cats .btn.active { background: var(--text); color: #fff; border-color: var(--text); }
+    .cat-title { margin: 22px 0 10px; font-size: 1.1rem; }
+    .plato { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: center; }
+    .plato .emoji { font-size: 2.3rem; text-align: center; }
+    .plato .precio { font-weight: 800; margin-top: 4px; }
+    .plato.agotado { background: #f1f1f1; filter: grayscale(1); opacity: 0.6; }
+    .plato.agotado .precio { text-decoration: line-through; }
+    .stepper { display: flex; align-items: center; gap: 8px; }
+    .stepper .btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; font-size: 1.2rem; }
+    .stepper .n { min-width: 20px; text-align: center; font-weight: 800; }
+    .cartbar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border); z-index: 20; }
+    .cartbar .btn { width: 100%; max-width: 560px; margin: 0 auto; display: flex; justify-content: space-between; padding: 14px 18px; font-size: 1rem; }
+    .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 30; display: flex; align-items: flex-end; justify-content: center; }
+    .sheet { background: var(--surface); width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; border-radius: 20px 20px 0 0; padding: 20px 16px 24px; }
+    .linea { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; }
+    .pagos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pago { border: 2px solid var(--border); border-radius: 12px; padding: 12px 6px; text-align: center; cursor: pointer; font-weight: 700; background: var(--surface); font: inherit; }
+    .pago .ic { font-size: 1.6rem; display: block; }
+    .pago.sel { border-color: var(--accent); background: var(--accent-soft); }
+    .pasos { display: flex; justify-content: space-between; margin: 20px 0; position: relative; }
+    .paso { text-align: center; flex: 1; font-size: .8rem; color: var(--muted); }
+    .paso .dot { width: 34px; height: 34px; border-radius: 50%; background: var(--border); margin: 0 auto 6px; display: grid; place-items: center; font-size: 1rem; }
+    .paso.on { color: var(--text); font-weight: 700; }
+    .paso.on .dot { background: var(--accent); color: #fff; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1 id="nombre">Menú</h1>
+      <div class="sub" id="mesaTxt"></div>
+    </div>
+  </header>
+
+  <!-- Error de mesa -->
+  <div id="sinMesa" class="container narrow hidden">
+    <div class="card empty">
+      <div style="font-size:3rem">📷</div>
+      <h2>Escanea el código QR de tu mesa</h2>
+      <p>Así sabremos a qué mesa llevar tu pedido.</p>
+    </div>
+  </div>
+
+  <!-- Mesa cerrada (QR bloqueado) -->
+  <div id="mesaCerrada" class="container narrow hidden">
+    <div class="card empty mt">
+      <div style="font-size:3rem">🔒</div>
+      <h2>Tu mesa no está activa</h2>
+      <p>Por favor llama al mesero para que abra tu mesa.</p>
+      <p class="small">Esta página se actualizará sola en cuanto la mesa esté abierta.</p>
+    </div>
+  </div>
+
+  <!-- Menú -->
+  <div id="vistaMenu" class="hidden">
+    <nav class="cats" id="cats"></nav>
+    <main class="container narrow" id="lista"></main>
+    <div class="cartbar hidden" id="cartbar">
+      <button class="btn btn-primary" id="verCarrito">
+        <span id="cartCount"></span><span>Ver pedido</span><span id="cartTotal"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Seguimiento del pedido -->
+  <div id="vistaSeguimiento" class="container narrow hidden">
+    <div class="card mt">
+      <div class="row between">
+        <h2 id="segTitulo">Pedido recibido</h2>
+        <span class="badge" id="segBadge"></span>
+      </div>
+      <p class="muted" id="segMsg"></p>
+      <div class="pasos" id="pasos"></div>
+      <div id="segDetalle"></div>
+    </div>
+    <button class="btn btn-block mt" id="nuevoPedido">➕ Hacer otro pedido</button>
+  </div>
+
+  <!-- Hoja del carrito -->
+  <div class="sheet-bg hidden" id="sheet">
+    <div class="sheet">
+      <div class="row between">
+        <h2>Tu pedido</h2>
+        <button class="btn btn-ghost btn-sm" id="cerrarSheet">✕</button>
+      </div>
+      <div id="lineas"></div>
+      <div class="row between mt"><strong>Total</strong><strong id="sheetTotal"></strong></div>
+
+      <h3 class="mt">¿Cómo quieres pagar?</h3>
+      <div class="pagos" id="pagos">
+        <button class="pago" data-m="efectivo"><span class="ic">💵</span>Efectivo</button>
+        <button class="pago" data-m="tarjeta"><span class="ic">💳</span>Tarjeta</button>
+        <button class="pago" data-m="pse"><span class="ic">🏦</span>PSE</button>
+      </div>
+      <p class="muted small mt" id="pagoInfo"></p>
+
+      <div class="mt">
+        <label for="nota">Comentarios para la cocina (opcional)</label>
+        <textarea id="nota" maxlength="300" placeholder="Ej: sin cebolla, término medio..."></textarea>
+      </div>
+      <button class="btn btn-primary btn-block mt" id="enviar">Enviar pedido</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    const mesa = Number(new URLSearchParams(location.search).get('mesa'));
+    const KEY = `pedido-mesa-${mesa}`;
+    let menu = [];
+    let carrito = {}; // productId -> qty
+    let metodo = null;
+    let pedidoActual = null;
+    let sessionId = null; // sesión actual de la mesa (la abre el mesero)
+
+    const $ = (id) => document.getElementById(id);
+    const guardarLocal = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
+    const leerLocal = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+
+    const INFO_PAGO = {
+      efectivo: 'La mesera pasará por tu mesa a recibir el pago.',
+      tarjeta: 'La mesera llevará el datáfono a tu mesa.',
+      pse: 'Te enviaremos el enlace de pago PSE en tu mesa.',
+    };
+
+    async function init() {
+      const cfg = await api('/api/config');
+      $('nombre').textContent = cfg.restaurantName;
+      document.title = `Menú · ${cfg.restaurantName}`;
+
+      if (!Number.isInteger(mesa) || mesa < 1 || mesa > cfg.tables) {
+        $('sinMesa').classList.remove('hidden');
+        return;
+      }
+      $('mesaTxt').textContent = `Mesa ${mesa}`;
+      await entrarSegunEstado();
+    }
+
+    // Consulta si la mesa está abierta y muestra la vista que corresponda
+    async function entrarSegunEstado() {
+      const estado = await api(`/api/tables/${mesa}/status`);
+      if (!estado.open) return mostrarCerrada();
+
+      let local = leerLocal();
+      if (local.sessionId !== estado.sessionId) {
+        // Sesión nueva: se descarta el carrito/pedido de visitas anteriores
+        local = { sessionId: estado.sessionId, carrito: {} };
+        guardarLocal(local);
+      }
+      sessionId = estado.sessionId;
+      carrito = local.carrito || {};
+      menu = await api('/api/menu');
+
+      if (local.pedidoId) {
+        try {
+          pedidoActual = await api(`/api/orders/${local.pedidoId}`);
+          if (!['entregado', 'cancelado'].includes(pedidoActual.status) && pedidoActual.table === mesa) {
+            return mostrarSeguimiento();
+          }
+        } catch {}
+      }
+      mostrarMenu();
+    }
+
+    function mostrarCerrada() {
+      sessionId = null;
+      carrito = {};
+      pedidoActual = null;
+      guardarLocal({});
+      ['vistaMenu', 'vistaSeguimiento', 'sheet'].forEach((id) => $(id).classList.add('hidden'));
+      $('mesaCerrada').classList.remove('hidden');
+    }
+
+    // ---------- Menú ----------
+    function mostrarMenu() {
+      if (!sessionId) return mostrarCerrada();
+      $('mesaCerrada').classList.add('hidden');
+      $('vistaSeguimiento').classList.add('hidden');
+      $('vistaMenu').classList.remove('hidden');
+      const cats = [...new Set(menu.map((p) => p.category))];
+      $('cats').innerHTML = cats.map((c, i) =>
+        `<a class="btn btn-sm ${i === 0 ? 'active' : ''}" href="#cat-${i}">${esc(c)}</a>`).join('');
+      $('lista').innerHTML = cats.map((c, i) => `
+        <h2 class="cat-title" id="cat-${i}">${esc(c)}</h2>
+        <div class="grid">
+          ${menu.filter((p) => p.category === c).map(platoHTML).join('')}
+        </div>`).join('');
+      $('cats').querySelectorAll('a').forEach((a) => a.addEventListener('click', () => {
+        $('cats').querySelectorAll('a').forEach((x) => x.classList.remove('active'));
+        a.classList.add('active');
+      }));
+      actualizarCarrito();
+    }
+
+    function platoHTML(p) {
+      const n = carrito[p.id] || 0;
+      return `
+        <div class="card plato ${p.available ? '' : 'agotado'}" data-id="${p.id}">
+          <div class="emoji">${esc(p.emoji)}</div>
+          <div>
+            <strong>${esc(p.name)}</strong>
+            <div class="muted small">${esc(p.description)}</div>
+            <div class="precio">${money(p.price)}</div>
+          </div>
+          <div class="stepper">
+            ${p.available ? `
+              <button class="btn menos ${n ? '' : 'hidden'}" aria-label="Quitar">−</button>
+              <span class="n ${n ? '' : 'hidden'}">${n}</span>
+              <button class="btn btn-primary mas" aria-label="Agregar">+</button>`
+            : '<span class="badge st-cancelado">Agotado</span>'}
+          </div>
+        </div>`;
+    }
+
+    $('lista').addEventListener('click', (e) => {
+      const card = e.target.closest('.plato');
+      if (!card) return;
+      const id = Number(card.dataset.id);
+      if (e.target.closest('.mas')) carrito[id] = (carrito[id] || 0) + 1;
+      else if (e.target.closest('.menos')) carrito[id] = Math.max(0, (carrito[id] || 0) - 1);
+      else return;
+      if (!carrito[id]) delete carrito[id];
+      card.outerHTML = platoHTML(menu.find((p) => p.id === id));
+      actualizarCarrito();
+    });
+
+    function lineasCarrito() {
+      return Object.entries(carrito)
+        .map(([id, qty]) => ({ p: menu.find((x) => x.id === Number(id)), qty }))
+        .filter((l) => l.p);
+    }
+
+    function actualizarCarrito() {
+      const lineas = lineasCarrito();
+      const cant = lineas.reduce((s, l) => s + l.qty, 0);
+      const total = lineas.reduce((s, l) => s + l.qty * l.p.price, 0);
+      $('cartbar').classList.toggle('hidden', cant === 0);
+      $('cartCount').textContent = `${cant} ${cant === 1 ? 'producto' : 'productos'}`;
+      $('cartTotal').textContent = money(total);
+      guardarLocal({ ...leerLocal(), carrito });
+      return { lineas, total };
+    }
+
+    // ---------- Carrito / pago ----------
+    function abrirSheet() {
+      const { lineas, total } = actualizarCarrito();
+      if (!lineas.length) return cerrarSheet();
+      $('lineas').innerHTML = lineas.map((l) => `
+        <div class="linea" data-id="${l.p.id}">
+          <div>${esc(l.p.emoji)} <strong>${esc(l.p.name)}</strong><div class="muted small">${money(l.p.price)} c/u</div></div>
+          <div class="stepper">
+            <button class="btn menos">−</button><span class="n">${l.qty}</span><button class="btn mas">+</button>
+          </div>
+        </div>`).join('');
+      $('sheetTotal').textContent = money(total);
+      $('sheet').classList.remove('hidden');
+    }
+    function cerrarSheet() {
+      $('sheet').classList.add('hidden');
+      mostrarMenu();
+    }
+
+    $('verCarrito').onclick = abrirSheet;
+    $('cerrarSheet').onclick = cerrarSheet;
+    $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) cerrarSheet(); });
+    $('lineas').addEventListener('click', (e) => {
+      const fila = e.target.closest('.linea');
+      if (!fila) return;
+      const id = Number(fila.dataset.id);
+      if (e.target.closest('.mas')) carrito[id]++;
+      else if (e.target.closest('.menos')) carrito[id]--;
+      else return;
+      if (carrito[id] <= 0) delete carrito[id];
+      abrirSheet();
+    });
+
+    $('pagos').addEventListener('click', (e) => {
+      const b = e.target.closest('.pago');
+      if (!b) return;
+      metodo = b.dataset.m;
+      $('pagos').querySelectorAll('.pago').forEach((x) => x.classList.toggle('sel', x === b));
+      $('pagoInfo').textContent = INFO_PAGO[metodo];
+    });
+
+    $('enviar').onclick = async () => {
+      if (!metodo) return toast('Selecciona cómo quieres pagar 👆');
+      const btn = $('enviar');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      try {
+        pedidoActual = await api('/api/orders', {
+          method: 'POST',
+          body: {
+            table: mesa,
+            sessionId,
+            paymentMethod: metodo,
+            note: $('nota').value,
+            items: lineasCarrito().map((l) => ({ productId: l.p.id, qty: l.qty })),
+          },
+        });
+        carrito = {};
+        metodo = null;
+        $('nota').value = '';
+        $('pagos').querySelectorAll('.pago').forEach((x) => x.classList.remove('sel'));
+        $('pagoInfo').textContent = '';
+        guardarLocal({ sessionId, carrito: {}, pedidoId: pedidoActual.id });
+        $('sheet').classList.add('hidden');
+        mostrarSeguimiento();
+      } catch (err) {
+        toast(err.message);
+        // Por si la mesa se cerró / cambió de sesión o algo se agotó
+        const estado = await api(`/api/tables/${mesa}/status`).catch(() => null);
+        if (estado && (!estado.open || estado.sessionId !== sessionId)) await entrarSegunEstado();
+        else menu = await api('/api/menu');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Enviar pedido';
+      }
+    };
+
+    // ---------- Seguimiento ----------
+    const PASOS = [
+      ['por_confirmar', '🧑‍💼', 'Confirmando'],
+      ['pendiente', '📨', 'En cocina'],
+      ['preparando', '👨‍🍳', 'Preparando'],
+      ['listo', '🛎️', 'Listo'],
+      ['entregado', '✅', 'Entregado'],
+    ];
+    const MENSAJES = {
+      por_confirmar: 'El mesero pasará por tu mesa para confirmar tu pedido. Apenas lo confirme, lo enviamos a la cocina.',
+      pendiente: '¡Pedido confirmado! La cocina ya lo recibió.',
+      preparando: 'Tu pedido se está preparando.',
+      listo: '¡Tu pedido está listo! Ya va camino a tu mesa.',
+      entregado: '¡Buen provecho! 😋',
+      cancelado: 'Tu pedido fue rechazado o cancelado. Consulta con el mesero.',
+    };
+
+    function mostrarSeguimiento() {
+      $('mesaCerrada').classList.add('hidden');
+      $('vistaMenu').classList.add('hidden');
+      $('vistaSeguimiento').classList.remove('hidden');
+      const o = pedidoActual;
+      $('segTitulo').textContent = `Pedido #${o.id}`;
+      // Mientras espera confirmación no se permite enviar otro pedido
+      $('nuevoPedido').classList.toggle('hidden', o.status === 'por_confirmar');
+      $('segBadge').className = `badge st-${o.status}`;
+      $('segBadge').textContent = ESTADOS[o.status];
+      $('segMsg').textContent = MENSAJES[o.status];
+      const idx = PASOS.findIndex((p) => p[0] === o.status);
+      $('pasos').innerHTML = o.status === 'cancelado' ? '' : PASOS.map((p, i) => `
+        <div class="paso ${i <= idx ? 'on' : ''}"><div class="dot">${p[1]}</div>${p[2]}</div>`).join('');
+      $('segDetalle').innerHTML = `
+        ${o.items.map((l) => `<div class="linea"><span>${l.qty}× ${esc(l.emoji)} ${esc(l.name)}</span><span>${money(l.qty * l.price)}</span></div>`).join('')}
+        <div class="row between mt"><strong>Total</strong><strong>${money(o.total)}</strong></div>
+        <p class="muted small mt">Pago: ${PAGOS[o.paymentMethod]} · ${o.paid ? '✅ Pagado' : INFO_PAGO[o.paymentMethod]}</p>`;
+    }
+
+    $('nuevoPedido').onclick = async () => {
+      menu = await api('/api/menu');
+      mostrarMenu();
+    };
+
+    // Actualizaciones en tiempo real
+    const socket = io({ query: { mesa } }); // sólo recibe avisos de su propia mesa
+    socket.on('order:updated', (o) => {
+      if (pedidoActual && o.id === pedidoActual.id) {
+        const antes = pedidoActual.status;
+        pedidoActual = o;
+        if (!$('vistaSeguimiento').classList.contains('hidden')) mostrarSeguimiento();
+        if (o.status === antes) return;
+        if (o.status === 'listo') toast('🛎️ ¡Tu pedido está listo!');
+        if (antes === 'por_confirmar' && o.status === 'pendiente') toast('✅ El mesero confirmó tu pedido');
+        if (antes === 'por_confirmar' && o.status === 'cancelado') toast('❌ El mesero rechazó el pedido');
+      }
+    });
+    socket.on('inventory:changed', async () => {
+      if (!sessionId) return;
+      menu = await api('/api/menu');
+      if (!$('vistaMenu').classList.contains('hidden') && $('sheet').classList.contains('hidden')) mostrarMenu();
+    });
+    // El mesero abrió o cerró esta mesa
+    socket.on('table:updated', (t) => {
+      if (t.table !== mesa) return;
+      if (!t.open && sessionId) {
+        mostrarCerrada();
+        toast('🔒 La mesa fue cerrada. ¡Gracias por tu visita!');
+      } else if (t.open && !sessionId) {
+        entrarSegunEstado().then(() => toast('✅ ¡Tu mesa está activa! Ya puedes pedir.')).catch((e) => toast(e.message));
+      }
+    });
+    // Al reconectar (p. ej. el celular estuvo bloqueado) se vuelve a verificar el estado
+    socket.on('connect', () => {
+      if (!iniciado) return;
+      api(`/api/tables/${mesa}/status`).then((e) => {
+        if (e.open !== Boolean(sessionId) || (e.open && e.sessionId !== sessionId)) entrarSegunEstado();
+      }).catch(() => {});
+    });
+
+    let iniciado = false;
+    init()
+      .then(() => { iniciado = Number.isInteger(mesa) && mesa >= 1; })
+      .catch((e) => toast(e.message));
+  </script>
+</body>
+</html>

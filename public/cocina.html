@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cocina</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>👨‍🍳 Cocina</h1>
+      <div class="sub" id="estadoConexion">Conectando...</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="columns">
+      <section>
+        <div class="column-title"><h2>Nuevos</h2><span class="badge st-pendiente" id="nPend">0</span></div>
+        <div class="grid" id="colPend"></div>
+      </section>
+      <section>
+        <div class="column-title"><h2>En preparación</h2><span class="badge st-preparando" id="nPrep">0</span></div>
+        <div class="grid" id="colPrep"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    let pedidos = [];
+    const nuevos = new Set();
+    const $ = (id) => document.getElementById(id);
+
+    function render() {
+      const pend = pedidos.filter((o) => o.status === 'pendiente');
+      const prep = pedidos.filter((o) => o.status === 'preparando');
+      $('nPend').textContent = pend.length;
+      $('nPrep').textContent = prep.length;
+
+      $('colPend').innerHTML = pend.length
+        ? pend.map((o) => orderCardHTML(o, `
+            <div class="row">
+              <button class="btn btn-info btn-block" data-acc="preparando">Empezar a preparar</button>
+              <button class="btn btn-danger btn-sm" data-acc="cancelado" title="Cancelar">✕</button>
+            </div>`)).join('')
+        : '<div class="card empty">Sin pedidos nuevos 🙌</div>';
+
+      $('colPrep').innerHTML = prep.length
+        ? prep.map((o) => orderCardHTML(o, `<button class="btn btn-ok btn-block" data-acc="listo">✔ Pedido listo</button>`)).join('')
+        : '<div class="card empty">Nada en preparación</div>';
+
+      nuevos.forEach((id) => document.querySelector(`.order-card[data-id="${id}"]`)?.classList.add('nuevo'));
+      nuevos.clear();
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-acc]');
+      if (!btn) return;
+      const id = Number(btn.closest('.order-card').dataset.id);
+      const status = btn.dataset.acc;
+      if (status === 'cancelado' && !btn.dataset.confirm) {
+        btn.dataset.confirm = '1';
+        btn.textContent = '¿Cancelar?';
+        return;
+      }
+      btn.disabled = true;
+      try { await api(`/api/orders/${id}`, { method: 'PATCH', body: { status } }); }
+      catch (err) { toast(err.message); btn.disabled = false; }
+    });
+
+    async function cargar() {
+      pedidos = (await api('/api/orders?active=1')).sort((a, b) => a.id - b.id);
+      render();
+    }
+
+    barraSesion();
+    const socket = io();
+    socket.on('connect', () => { $('estadoConexion').textContent = '🟢 En línea — los pedidos llegan solos'; cargar(); });
+    socket.on('disconnect', () => { $('estadoConexion').textContent = '🔴 Sin conexión, reintentando...'; });
+    // Los pedidos nuevos llegan "por confirmar": la cocina sólo los ve cuando el mesero los aprueba
+    socket.on('order:new', (o) => { pedidos.push(o); render(); });
+    socket.on('order:updated', (o) => {
+      const i = pedidos.findIndex((x) => x.id === o.id);
+      const antes = i >= 0 ? pedidos[i].status : null;
+      if (i >= 0) pedidos[i] = o; else pedidos.push(o);
+      if (o.status === 'pendiente' && antes !== 'pendiente') {
+        nuevos.add(o.id);
+        beep(3);
+        toast(`🔔 Nuevo pedido confirmado — Mesa ${o.table}`);
+      }
+      render();
+    });
+  </script>
+</body>
+</html>

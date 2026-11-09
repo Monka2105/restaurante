@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meseros</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .mesas { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 24px; }
+    .mesa-tile { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+    .mesa-tile .num { font-size: 1.4rem; font-weight: 800; }
+    .mesa-tile.abierta { border-color: var(--ok); background: var(--ok-soft); }
+    .mesa-tile.debe { border-color: var(--warn); background: var(--warn-soft); }
+    .mesa-tile .acciones { display: flex; gap: 6px; margin-top: auto; }
+    .mesa-tile .acciones .btn:first-child { flex: 1; }
+    .confirmar-box { border: 2px solid #7048e8; background: #faf5ff; border-radius: var(--radius); padding: 14px; margin-bottom: 24px; }
+    .confirmar-box .grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .qr-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .qr-modal { background: var(--surface); border-radius: 20px; padding: 20px; text-align: center; width: 100%; max-width: 360px; }
+    .qr-modal img { width: 100%; max-width: 300px; display: block; margin: 10px auto; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>🛎️ Meseros</h1>
+      <div class="sub" id="estadoConexion">Conectando...</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="confirmar-box" id="boxConfirmar">
+      <div class="column-title"><h2>Por confirmar</h2><span class="badge st-por_confirmar" id="nConfirmar">0</span></div>
+      <p class="muted small">Ve a la mesa, verifica que el pedido sea de clientes reales y que esté correcto. Solo al confirmarlo pasa a cocina.</p>
+      <div class="grid" id="colConfirmar"></div>
+    </div>
+
+    <div class="column-title">
+      <h2>Mesas</h2>
+      <span class="badge st-listo" id="nAbiertas">0 abiertas</span>
+    </div>
+    <p class="muted small">Abre la mesa cuando los clientes se sienten: solo así su QR permite pedir. Ciérrala cuando paguen y se vayan.</p>
+    <div class="mesas" id="mesas"></div>
+
+    <div class="columns">
+      <section>
+        <div class="column-title"><h2>Listos para llevar</h2><span class="badge st-listo" id="nListo">0</span></div>
+        <div class="grid" id="colListo"></div>
+      </section>
+      <section>
+        <div class="column-title"><h2>Por cobrar</h2><span class="badge st-pendiente" id="nCobrar">0</span></div>
+        <div class="grid" id="colCobrar"></div>
+      </section>
+      <section>
+        <div class="column-title"><h2>En cocina</h2><span class="badge st-preparando" id="nCocina">0</span></div>
+        <div class="grid" id="colCocina"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- QR de una mesa -->
+  <div class="qr-bg hidden" id="qrModal">
+    <div class="qr-modal">
+      <h2 id="qrTitulo">Mesa</h2>
+      <img id="qrImg" alt="Código QR de la mesa" />
+      <p class="muted small" id="qrEstado"></p>
+      <a class="small" id="qrLink" target="_blank">Abrir menú de esta mesa</a>
+      <button class="btn btn-block mt" id="qrCerrar">Cerrar</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    let pedidos = [];
+    const nuevos = new Set();
+    const $ = (id) => document.getElementById(id);
+
+    const pagoInfo = (o) => `
+      <div class="row between small">
+        <span>${PAGOS[o.paymentMethod]}</span>
+        <strong>${money(o.total)}</strong>
+      </div>`;
+
+    function render() {
+      const porConfirmar = pedidos.filter((o) => o.status === 'por_confirmar');
+      const listos = pedidos.filter((o) => o.status === 'listo');
+      const cocina = pedidos.filter((o) => ['pendiente', 'preparando'].includes(o.status));
+      const cobrar = pedidos.filter((o) => !['cancelado', 'por_confirmar'].includes(o.status) && !o.paid);
+
+      $('nConfirmar').textContent = porConfirmar.length;
+      $('colConfirmar').innerHTML = porConfirmar.length
+        ? porConfirmar.map((o) => orderCardHTML(o, `
+            ${pagoInfo(o)}
+            <div class="row">
+              <button class="btn btn-ok btn-block" data-acc="confirmar">✔ Confirmar y enviar a cocina</button>
+              <button class="btn btn-danger btn-sm" data-acc="rechazar" title="Rechazar">✕ Rechazar</button>
+            </div>`)).join('')
+        : '<div class="card empty">No hay pedidos por confirmar</div>';
+
+      $('nListo').textContent = listos.length;
+      $('nCocina').textContent = cocina.length;
+      $('nCobrar').textContent = cobrar.length;
+
+      $('colListo').innerHTML = listos.length
+        ? listos.map((o) => orderCardHTML(o, `<button class="btn btn-ok btn-block" data-acc="entregar">✔ Entregado en la mesa</button>`)).join('')
+        : '<div class="card empty">Nada por llevar</div>';
+
+      $('colCobrar').innerHTML = cobrar.length
+        ? cobrar.map((o) => `
+          <div class="card order-card" data-id="${o.id}">
+            <div class="row between">
+              <div><div class="mesa">Mesa ${o.table}</div><div class="muted small">Pedido #${o.id} · ${hora(o.createdAt)}</div></div>
+              <span class="badge st-${o.status}">${ESTADOS[o.status]}</span>
+            </div>
+            ${pagoInfo(o)}
+            ${o.paymentMethod === 'tarjeta' ? '<div class="nota">Llevar el datáfono a la mesa</div>' : ''}
+            ${o.paymentMethod === 'pse' ? '<div class="nota">Enviar enlace de pago PSE</div>' : ''}
+            <button class="btn btn-primary btn-block" data-acc="pagar">💰 Marcar como pagado</button>
+          </div>`).join('')
+        : '<div class="card empty">Todo cobrado 👌</div>';
+
+      $('colCocina').innerHTML = cocina.length
+        ? cocina.map((o) => orderCardHTML(o)).join('')
+        : '<div class="card empty">La cocina está libre</div>';
+
+      nuevos.forEach((id) => document.querySelectorAll(`.order-card[data-id="${id}"]`).forEach((el) => el.classList.add('nuevo')));
+      nuevos.clear();
+    }
+
+    // ---------- Mesas (apertura / cierre de sesión) ----------
+    let mesas = [];
+
+    function renderMesas() {
+      const abiertas = mesas.filter((m) => m.open).length;
+      $('nAbiertas').textContent = `${abiertas} ${abiertas === 1 ? 'abierta' : 'abiertas'}`;
+      $('mesas').innerHTML = mesas.map((m) => `
+        <div class="card mesa-tile ${m.open ? (m.unpaid ? 'debe' : 'abierta') : ''}" data-mesa="${m.table}">
+          <div class="row between">
+            <span class="num">Mesa ${m.table}</span>
+            <span>${m.open ? '🟢' : '🔒'}</span>
+          </div>
+          ${m.open ? `
+            <div class="small muted">Abierta <span class="tiempo" data-t="${m.openedAt}">${haceCuanto(m.openedAt)}</span></div>
+            <div class="small">${m.orders} ${m.orders === 1 ? 'pedido' : 'pedidos'} · ${money(m.total)}</div>
+            ${m.toConfirm ? `<div><span class="badge st-por_confirmar">${m.toConfirm} por confirmar</span></div>` : ''}
+            ${m.unpaid ? `<div class="small"><strong>Por cobrar: ${money(m.unpaid)}</strong></div>` : ''}
+            <div class="acciones">
+              <button class="btn btn-sm" data-mesa-acc="close">Cerrar mesa</button>
+              <button class="btn btn-sm" data-mesa-acc="qr" title="Ver QR">📱 QR</button>
+            </div>`
+          : `
+            <div class="small muted">Libre · QR bloqueado</div>
+            <div class="acciones">
+              <button class="btn btn-ok btn-sm" data-mesa-acc="open">Abrir mesa</button>
+              <button class="btn btn-sm" data-mesa-acc="qr" title="Ver QR">📱 QR</button>
+            </div>`}
+        </div>`).join('');
+    }
+
+    async function cargarMesas() {
+      mesas = await api('/api/tables');
+      renderMesas();
+    }
+
+    $('mesas').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-mesa-acc]');
+      if (!btn) return;
+      const n = Number(btn.closest('.mesa-tile').dataset.mesa);
+      const m = mesas.find((x) => x.table === n);
+      const accion = btn.dataset.mesaAcc;
+      if (accion === 'qr') return mostrarQR(n);
+      let body;
+      if (accion === 'close') {
+        if (m.toConfirm && !confirm(`La mesa ${n} tiene ${m.toConfirm} pedido(s) sin confirmar. Se anularán al cerrar. ¿Continuar?`)) return;
+        if (m.active && !confirm(`La mesa ${n} tiene ${m.active} pedido(s) sin entregar. ¿Cerrarla igual?`)) return;
+        if (m.unpaid) {
+          if (!confirm(`La mesa ${n} tiene ${money(m.unpaid)} sin pagar. ¿Cerrarla igual?`)) return;
+          body = { force: true };
+        }
+      }
+      btn.disabled = true;
+      try {
+        await api(`/api/tables/${n}/${accion}`, { method: 'POST', body });
+        toast(accion === 'open' ? `🟢 Mesa ${n} abierta` : `🔒 Mesa ${n} cerrada`);
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false;
+      }
+    });
+
+    // QR de la mesa (para mostrarlo en pantalla si el impreso falta o está dañado)
+    let qrMesa = null;
+    function mostrarQR(n) {
+      qrMesa = n;
+      $('qrTitulo').textContent = `Mesa ${n}`;
+      $('qrImg').src = `/api/qr/${n}`;
+      $('qrLink').href = `/menu.html?mesa=${n}`;
+      actualizarEstadoQR();
+      $('qrModal').classList.remove('hidden');
+    }
+    function actualizarEstadoQR() {
+      const m = mesas.find((x) => x.table === qrMesa);
+      if (!m) return;
+      $('qrEstado').textContent = m.open
+        ? '🟢 Mesa abierta: el cliente puede escanear y pedir.'
+        : '🔒 Mesa cerrada: el QR no permite pedir hasta que la abras.';
+    }
+    $('qrCerrar').onclick = () => { $('qrModal').classList.add('hidden'); qrMesa = null; };
+    $('qrModal').addEventListener('click', (e) => { if (e.target === $('qrModal')) $('qrCerrar').onclick(); });
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-acc]');
+      if (!btn) return;
+      const id = Number(btn.closest('.order-card').dataset.id);
+      const acc = btn.dataset.acc;
+      if (acc === 'rechazar' && !btn.dataset.seguro) {
+        btn.dataset.seguro = '1';
+        btn.textContent = '¿Rechazar?';
+        return;
+      }
+      const body = {
+        pagar: { paid: true },
+        entregar: { status: 'entregado' },
+        confirmar: { status: 'pendiente' },
+        rechazar: { status: 'cancelado' },
+      }[acc];
+      btn.disabled = true;
+      try { await api(`/api/orders/${id}`, { method: 'PATCH', body }); }
+      catch (err) { toast(err.message); btn.disabled = false; }
+    });
+
+    async function cargar() {
+      pedidos = (await api('/api/orders?today=1')).sort((a, b) => a.id - b.id);
+      render();
+    }
+
+    barraSesion();
+    const socket = io();
+    socket.on('connect', () => { $('estadoConexion').textContent = '🟢 En línea'; cargar(); cargarMesas(); });
+    socket.on('table:updated', (t) => {
+      const i = mesas.findIndex((x) => x.table === t.table);
+      if (i >= 0) mesas[i] = t; else mesas.push(t);
+      renderMesas();
+      if (qrMesa === t.table) actualizarEstadoQR();
+    });
+    socket.on('disconnect', () => { $('estadoConexion').textContent = '🔴 Sin conexión, reintentando...'; });
+    socket.on('order:new', (o) => {
+      pedidos.push(o);
+      nuevos.add(o.id);
+      render();
+      beep(2);
+      toast(`📨 Mesa ${o.table} quiere pedir: ve a verificar y confirma`);
+    });
+    socket.on('order:updated', (o) => {
+      const i = pedidos.findIndex((x) => x.id === o.id);
+      const antes = i >= 0 ? pedidos[i].status : null;
+      if (i >= 0) pedidos[i] = o; else pedidos.push(o);
+      if (o.status === 'listo' && antes !== 'listo') {
+        nuevos.add(o.id);
+        beep(3);
+        toast(`🛎️ ¡Mesa ${o.table} lista para llevar!`);
+      }
+      render();
+    });
+  </script>
+</body>
+</html>

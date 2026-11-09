@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Iniciar sesión</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .login { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
+    .login .ic { font-size: 2.6rem; text-align: center; }
+    .login h1 { text-align: center; font-size: 1.4rem; margin: 0; }
+    .login p { text-align: center; }
+    .err { color: var(--danger); background: var(--danger-soft); border-radius: 10px; padding: 8px 12px; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="card login" id="form" autocomplete="on">
+      <div class="ic" id="icono">🔐</div>
+      <h1 id="titulo">Iniciar sesión</h1>
+      <p class="muted small" id="subtitulo">Ingresa con el usuario y la contraseña que te dio el jefe.</p>
+
+      <div id="campoNombre" class="hidden">
+        <label for="name">Tu nombre</label>
+        <input id="name" name="name" maxlength="60" autocomplete="name" />
+      </div>
+      <div>
+        <label for="username">Usuario</label>
+        <input id="username" name="username" required maxlength="30" autocomplete="username" autocapitalize="none" />
+      </div>
+      <div>
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" required maxlength="128" autocomplete="current-password" />
+      </div>
+      <div id="campoRepetir" class="hidden">
+        <label for="password2">Repite la contraseña</label>
+        <input id="password2" type="password" maxlength="128" autocomplete="new-password" />
+      </div>
+
+      <div class="err hidden" id="error"></div>
+      <button class="btn btn-primary btn-block" type="submit" id="enviar">Entrar</button>
+      <a class="small muted" href="/" style="text-align:center">← Volver al inicio</a>
+    </form>
+
+    <!-- Ya hay una sesión abierta en este dispositivo -->
+    <div class="card login hidden" id="yaConectado">
+      <div class="ic">✅</div>
+      <h1>Ya iniciaste sesión</h1>
+      <p>Estás conectado como <strong id="conNombre"></strong><br /><span class="muted small" id="conRol"></span></p>
+      <p class="err" id="avisoRol"></p>
+      <a class="btn btn-block" id="irPantalla" href="/">Ir a mi pantalla</a>
+      <button class="btn btn-primary btn-block" type="button" id="otraCuenta">Cerrar sesión y entrar con otra cuenta</button>
+      <a class="small muted" href="/" style="text-align:center">← Volver al inicio</a>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    // A dónde ir después de entrar: la página pedida, o la pantalla del rol de la persona
+    const siguiente = (() => {
+      const n = new URLSearchParams(location.search).get('next');
+      return n && n.startsWith('/') && !n.startsWith('//') ? n : null; // sólo rutas internas
+    })();
+    const PANTALLA_ROL = { '/admin.html': 'jefe', '/mesera.html': 'mesero', '/cocina.html': 'cocinero' };
+    const PANTALLA_TXT = {
+      '/admin.html': '📊 El Panel del jefe es sólo para jefes',
+      '/mesera.html': '🛎️ La pantalla de Meseros es sólo para meseros',
+      '/cocina.html': '👨‍🍳 La pantalla de Cocina es sólo para cocineros',
+    };
+    // Va a la pantalla pedida si es de su rol; si no, a la suya
+    let rolActual = null;
+    const irA = (home) => location.replace(siguiente && (!rolActual || PANTALLA_ROL[siguiente] === rolActual) ? siguiente : home || '/');
+    let modoSetup = false;
+
+    function mostrarError(msg) {
+      $('error').textContent = msg;
+      $('error').classList.toggle('hidden', !msg);
+    }
+
+    async function init() {
+      const r = await fetch('/api/auth/me');
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        // Pidió una pantalla de su propio rol: entrar directo
+        if (!siguiente || PANTALLA_ROL[siguiente] === data.user.role) return irA(data.home);
+        // Ya tiene sesión, pero de otro rol (p. ej. el jefe abrió "Meseros"): ofrecer cambiar de cuenta
+        $('form').classList.add('hidden');
+        $('yaConectado').classList.remove('hidden');
+        $('conNombre').textContent = data.user.name;
+        $('conRol').textContent = `${ROLES_TXT[data.user.role]} · usuario: ${data.user.username}`;
+        $('avisoRol').textContent = PANTALLA_TXT[siguiente] ? `${PANTALLA_TXT[siguiente]}. Cierra esta sesión y entra con la cuenta correspondiente.` : '';
+        $('irPantalla').href = data.home;
+        $('irPantalla').textContent = `Ir a mi pantalla (${ROLES_TXT[data.user.role]})`;
+        return;
+      }
+      if (data.needsSetup) {
+        // Primera vez: crear la cuenta del jefe
+        modoSetup = true;
+        $('icono').textContent = '👋';
+        $('titulo').textContent = 'Crea la cuenta del jefe';
+        $('subtitulo').textContent = 'Es la primera vez que se usa el sistema. Esta cuenta podrá ver las ventas y administrar todo.';
+        $('campoNombre').classList.remove('hidden');
+        $('campoRepetir').classList.remove('hidden');
+        $('name').required = true;
+        $('password').autocomplete = 'new-password';
+        $('password').minLength = 8;
+        $('password').placeholder = 'Mínimo 8 caracteres';
+        $('enviar').textContent = 'Crear cuenta y entrar';
+      }
+      $(modoSetup ? 'name' : 'username').focus();
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      mostrarError('');
+      if (modoSetup && $('password').value !== $('password2').value) return mostrarError('Las contraseñas no coinciden.');
+      const btn = $('enviar');
+      btn.disabled = true;
+      try {
+        const r = await api(modoSetup ? '/api/auth/setup' : '/api/auth/login', {
+          method: 'POST',
+          body: { name: $('name').value, username: $('username').value.trim(), password: $('password').value },
+        });
+        rolActual = r.user.role;
+        irA(r.home);
+      } catch (err) {
+        mostrarError(err.message);
+        $('password').select();
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('otraCuenta').onclick = async () => {
+      try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+      $('yaConectado').classList.add('hidden');
+      $('form').classList.remove('hidden');
+      $('username').value = '';
+      $('password').value = '';
+      $('username').focus();
+    };
+
+    init().catch(() => mostrarError('No se pudo conectar con el servidor.'));
+  </script>
+</body>
+</html>

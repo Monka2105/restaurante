@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Panel del jefe</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .qr-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+    .qr-card { text-align: center; break-inside: avoid; }
+    .qr-card img { width: 100%; max-width: 200px; }
+    .form-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    td input { width: 80px; padding: 6px 8px; }
+    tr.agotado td { background: #f1f1f1; color: var(--muted); }
+    tr.agotado td:first-child { filter: grayscale(1); }
+    .usuario { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .usuario:last-child { border-bottom: 0; }
+    .form-clave input { flex: 1; }
+    @media print {
+      .qr-card { border: 1px dashed #999; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar no-print">
+    <div>
+      <h1>📊 Panel del jefe</h1>
+      <div class="sub"><span id="nombreRest"></span> · 👤 <span id="usuarioNombre"></span></div>
+    </div>
+    <div class="row">
+      <a class="btn btn-sm" href="/">Inicio</a>
+      <button class="btn btn-sm" id="salir">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="tabs no-print" id="tabs">
+      <button class="btn active" data-tab="ventas">Ventas</button>
+      <button class="btn" data-tab="inventario">Inventario y menú</button>
+      <button class="btn" data-tab="pedidos">Pedidos</button>
+      <button class="btn" data-tab="qr">Códigos QR</button>
+      <button class="btn" data-tab="usuarios">Usuarios</button>
+    </div>
+
+    <!-- VENTAS -->
+    <section id="tab-ventas">
+      <div class="row wrap between">
+        <h2>Resumen de ventas</h2>
+        <select id="periodo" style="width:auto">
+          <option value="hoy">Hoy</option>
+          <option value="7">Últimos 7 días</option>
+          <option value="30">Últimos 30 días</option>
+          <option value="todo">Todo</option>
+        </select>
+      </div>
+      <div class="kpis mt">
+        <div class="card kpi"><div class="muted small">Ventas</div><div class="valor" id="kVentas">—</div></div>
+        <div class="card kpi"><div class="muted small">Pedidos</div><div class="valor" id="kPedidos">—</div></div>
+        <div class="card kpi"><div class="muted small">Ticket promedio</div><div class="valor" id="kTicket">—</div></div>
+        <div class="card kpi"><div class="muted small">Cobrado</div><div class="valor" id="kCobrado">—</div><div class="muted small" id="kPorCobrar"></div></div>
+        <div class="card kpi"><div class="muted small">Mesas atendidas</div><div class="valor" id="kMesas">—</div></div>
+        <div class="card kpi"><div class="muted small">Pedidos cancelados / rechazados</div><div class="valor" id="kCancelados">—</div></div>
+        <div class="card kpi"><div class="muted small">Productos con stock bajo</div><div class="valor" id="kBajo">—</div></div>
+      </div>
+      <div class="card mt">
+        <h3>Ventas por día</h3>
+        <div id="porDia"></div>
+      </div>
+      <div class="columns mt">
+        <div class="card">
+          <h3>Productos más vendidos</h3>
+          <div id="topProductos"></div>
+        </div>
+        <div class="card">
+          <h3>Ventas por método de pago</h3>
+          <div id="porPago"></div>
+          <h3 class="mt">⚠️ Reponer pronto</h3>
+          <div id="alertas"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INVENTARIO -->
+    <section id="tab-inventario" class="hidden">
+      <div class="card">
+        <h3 id="formTitulo">Agregar producto</h3>
+        <form id="formProd" class="form-grid">
+          <input type="hidden" name="id" />
+          <div><label>Nombre</label><input name="name" required maxlength="80" /></div>
+          <div><label>Categoría</label><input name="category" list="listaCats" placeholder="Ej: Bebidas" maxlength="40" /></div>
+          <div><label>Precio (COP)</label><input name="price" type="number" min="0" step="100" required /></div>
+          <div><label>Emoji</label><input name="emoji" maxlength="8" placeholder="🍽️" /></div>
+          <div><label>Stock actual</label><input name="stock" type="number" min="0" required /></div>
+          <div><label>Alerta si baja de</label><input name="minStock" type="number" min="0" value="5" /></div>
+          <div style="grid-column:1/-1"><label>Descripción</label><input name="description" maxlength="200" /></div>
+          <div class="row" style="grid-column:1/-1">
+            <button class="btn btn-primary" type="submit" id="btnGuardar">Agregar</button>
+            <button class="btn hidden" type="button" id="btnCancelarEd">Cancelar edición</button>
+          </div>
+        </form>
+        <datalist id="listaCats"></datalist>
+      </div>
+
+      <div class="card mt">
+        <h3>Inventario</h3>
+        <p class="muted small">El stock se descuenta solo con cada pedido y se devuelve si un pedido se cancela. Las filas en rojo están por debajo del mínimo.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Sumar</th><th>Disponibilidad</th><th>Visible</th><th></th></tr></thead>
+            <tbody id="tablaInv"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- PEDIDOS -->
+    <section id="tab-pedidos" class="hidden">
+      <div class="card">
+        <h3>Pedidos de hoy</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Hora</th><th>Mesa</th><th>Productos</th><th>Total</th><th>Pago</th><th>Estado</th></tr></thead>
+            <tbody id="tablaPedidos"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- QR -->
+    <section id="tab-qr" class="hidden">
+      <div class="card no-print">
+        <h3>Configuración</h3>
+        <form id="formAjustes" class="form-grid">
+          <div><label>Nombre del restaurante</label><input name="restaurantName" maxlength="60" /></div>
+          <div><label>Número de mesas</label><input name="tables" type="number" min="1" max="200" /></div>
+          <div class="row" style="align-items:flex-end"><button class="btn btn-primary" type="submit">Guardar</button></div>
+        </form>
+        <p class="muted small mt">Los QR apuntan a <code id="baseUrl"></code>. Los celulares deben estar en la misma red WiFi que este computador.</p>
+        <button class="btn mt" onclick="window.print()">🖨️ Imprimir códigos</button>
+      </div>
+      <div class="qr-grid mt" id="qrGrid"></div>
+    </section>
+
+    <!-- USUARIOS -->
+    <section id="tab-usuarios" class="hidden">
+      <div class="columns">
+        <div class="card">
+          <h3>Personal</h3>
+          <p class="muted small">
+            Cada persona entra con su usuario y contraseña y el sistema la lleva a su pantalla:<br />
+            <strong>👑 Jefe:</strong> ve las ventas y administra todo ·
+            <strong>🛎️ Mesero:</strong> abre/cierra mesas, confirma pedidos y cobra ·
+            <strong>👨‍🍳 Cocinero:</strong> prepara los pedidos confirmados.
+          </p>
+          <div id="listaUsuarios"></div>
+        </div>
+        <div>
+          <div class="card">
+            <h3>Agregar persona</h3>
+            <form id="formUsuario" class="grid">
+              <div><label>Nombre</label><input name="name" required maxlength="60" placeholder="Ej: Laura Gómez" /></div>
+              <div>
+                <label>Rol</label>
+                <select name="role" required>
+                  <option value="mesero">🛎️ Mesero</option>
+                  <option value="cocinero">👨‍🍳 Cocinero</option>
+                  <option value="jefe">👑 Jefe</option>
+                </select>
+              </div>
+              <div><label>Usuario (para iniciar sesión)</label><input name="username" required maxlength="30" autocapitalize="none" autocomplete="off" placeholder="Ej: laura" /></div>
+              <div><label>Contraseña (mínimo 8 caracteres)</label><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></div>
+              <p class="muted small">Entrégale el usuario y la contraseña a la persona. Podrá entrar desde <code>/login.html</code>.</p>
+              <button class="btn btn-primary" type="submit">Agregar</button>
+            </form>
+          </div>
+          <div class="card mt">
+            <h3>Cambiar mi contraseña</h3>
+            <form id="formClave" class="grid">
+              <div><label>Contraseña actual</label><input name="current" type="password" required autocomplete="current-password" /></div>
+              <div><label>Nueva contraseña</label><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></div>
+              <div><label>Repite la nueva contraseña</label><input name="password2" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></div>
+              <button class="btn btn-primary" type="submit">Cambiar contraseña</button>
+              <p class="muted small">Al cambiarla se cierra la sesión en los demás dispositivos.</p>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let productos = [];
+    let config = {};
+    let tabActual = 'ventas';
+
+    // ---------- Pestañas ----------
+    $('tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tab]');
+      if (!b) return;
+      tabActual = b.dataset.tab;
+      $('tabs').querySelectorAll('.btn').forEach((x) => x.classList.toggle('active', x === b));
+      document.querySelectorAll('main > section').forEach((s) => s.classList.toggle('hidden', s.id !== `tab-${tabActual}`));
+      refrescar();
+    });
+
+    function refrescar() {
+      if (tabActual === 'ventas') cargarVentas();
+      if (tabActual === 'inventario') cargarInventario();
+      if (tabActual === 'pedidos') cargarPedidos();
+      if (tabActual === 'qr') cargarQR();
+      if (tabActual === 'usuarios') cargarUsuarios();
+    }
+
+    // ---------- Ventas ----------
+    $('periodo').onchange = cargarVentas;
+    async function cargarVentas() {
+      const p = $('periodo').value;
+      let from = '';
+      if (p === 'hoy') { const d = new Date(); d.setHours(0, 0, 0, 0); from = d.toISOString(); }
+      else if (p !== 'todo') from = new Date(Date.now() - Number(p) * 86400000).toISOString();
+      const s = await api(`/api/stats${from ? `?from=${encodeURIComponent(from)}` : ''}`);
+
+      $('kVentas').textContent = money(s.revenue);
+      $('kPedidos').textContent = s.orders;
+      $('kTicket').textContent = money(s.orders ? Math.round(s.revenue / s.orders) : 0);
+      $('kBajo').textContent = s.lowStock.length;
+      $('kCobrado').textContent = money(s.collected);
+      $('kPorCobrar').textContent = s.revenue > s.collected ? `Falta cobrar ${money(s.revenue - s.collected)}` : '';
+      $('kMesas').textContent = s.tablesServed;
+      $('kCancelados').textContent = s.cancelled;
+
+      const maxDia = Math.max(1, ...s.byDay.map((d) => d.revenue));
+      const fechaDia = (d) => new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
+      $('porDia').innerHTML = s.byDay.length
+        ? s.byDay.slice().reverse().map((d) => `
+          <div class="bar-row">
+            <span>${fechaDia(d.day)}</span>
+            <div class="bar"><span style="width:${(d.revenue / maxDia) * 100}%"></span></div>
+            <span class="small"><strong>${money(d.revenue)}</strong> · ${d.orders} ${d.orders === 1 ? 'pedido' : 'pedidos'}</span>
+          </div>`).join('')
+        : '<p class="muted">Aún no hay ventas en este periodo.</p>';
+
+      const max = Math.max(1, ...s.byProduct.map((x) => x.qty));
+      $('topProductos').innerHTML = s.byProduct.length
+        ? s.byProduct.map((x) => `
+          <div class="bar-row">
+            <span>${esc(x.emoji)} ${esc(x.name)}</span>
+            <div class="bar"><span style="width:${(x.qty / max) * 100}%"></span></div>
+            <span class="small"><strong>${x.qty}</strong> · ${money(x.revenue)}</span>
+          </div>`).join('')
+        : '<p class="muted">Aún no hay ventas en este periodo.</p>';
+
+      const totalPago = Math.max(1, s.revenue);
+      $('porPago').innerHTML = Object.entries(s.byPayment).map(([m, v]) => `
+        <div class="bar-row">
+          <span>${PAGOS[m]}</span>
+          <div class="bar"><span style="width:${(v / totalPago) * 100}%"></span></div>
+          <span class="small"><strong>${money(v)}</strong></span>
+        </div>`).join('');
+
+      $('alertas').innerHTML = s.lowStock.length
+        ? s.lowStock.map((x) => `<div class="row between small" style="padding:4px 0">
+            <span>${esc(x.emoji)} ${esc(x.name)}</span>
+            <span class="badge st-cancelado">${x.stock === 0 ? 'Agotado' : `Quedan ${x.stock}`}</span></div>`).join('')
+        : '<p class="muted small">Todo el inventario está bien ✅</p>';
+    }
+
+    // ---------- Inventario ----------
+    async function cargarInventario() {
+      productos = await api('/api/products');
+      $('listaCats').innerHTML = [...new Set(productos.map((p) => p.category))].map((c) => `<option value="${esc(c)}">`).join('');
+      $('tablaInv').innerHTML = productos.map((p) => `
+        <tr data-id="${p.id}" class="${p.soldOut ? 'agotado' : p.stock <= p.minStock ? 'bajo' : ''}">
+          <td>${esc(p.emoji)} <strong>${esc(p.name)}</strong> ${p.soldOut ? '<span class="badge st-cancelado">Agotado</span>' : ''}</td>
+          <td>${esc(p.category)}</td>
+          <td>${money(p.price)}</td>
+          <td><strong>${p.stock}</strong> <span class="muted small">/ mín ${p.minStock}</span></td>
+          <td><div class="row"><input type="number" min="1" placeholder="+" class="sumar" /><button class="btn btn-sm" data-acc="sumar">OK</button></div></td>
+          <td>${p.soldOut
+            ? '<button class="btn btn-sm btn-ok" data-acc="agotado">✔ Volver a ofrecer</button>'
+            : '<button class="btn btn-sm btn-danger" data-acc="agotado">🚫 Marcar agotado</button>'}</td>
+          <td><input type="checkbox" data-acc="visible" ${p.active ? 'checked' : ''} style="width:auto" /></td>
+          <td class="row"><button class="btn btn-sm" data-acc="editar">Editar</button><button class="btn btn-sm btn-danger" data-acc="borrar">Borrar</button></td>
+        </tr>`).join('');
+    }
+
+    $('tablaInv').addEventListener('click', async (e) => {
+      const el = e.target.closest('[data-acc]');
+      if (!el) return;
+      const fila = el.closest('tr');
+      const id = Number(fila.dataset.id);
+      const p = productos.find((x) => x.id === id);
+      try {
+        if (el.dataset.acc === 'sumar') {
+          const n = Number(fila.querySelector('.sumar').value);
+          if (!n || n < 1) return toast('Escribe cuántas unidades vas a sumar');
+          await api(`/api/products/${id}`, { method: 'PUT', body: { stock: p.stock + n } });
+          toast(`Se sumaron ${n} unidades a ${p.name}`);
+        } else if (el.dataset.acc === 'agotado') {
+          await api(`/api/products/${id}`, { method: 'PUT', body: { soldOut: !p.soldOut } });
+          toast(p.soldOut ? `${p.name} está disponible de nuevo` : `${p.name} marcado como agotado`);
+        } else if (el.dataset.acc === 'visible') {
+          await api(`/api/products/${id}`, { method: 'PUT', body: { active: el.checked } });
+        } else if (el.dataset.acc === 'editar') {
+          const f = $('formProd');
+          for (const k of ['id', 'name', 'category', 'price', 'emoji', 'stock', 'minStock', 'description']) f.elements[k].value = p[k] ?? '';
+          $('formTitulo').textContent = `Editar: ${p.name}`;
+          $('btnGuardar').textContent = 'Guardar cambios';
+          $('btnCancelarEd').classList.remove('hidden');
+          f.scrollIntoView({ behavior: 'smooth' });
+          return;
+        } else if (el.dataset.acc === 'borrar') {
+          if (!el.dataset.confirm) { el.dataset.confirm = '1'; el.textContent = '¿Seguro?'; return; }
+          await api(`/api/products/${id}`, { method: 'DELETE' });
+        }
+        cargarInventario();
+      } catch (err) { toast(err.message); }
+    });
+
+    function limpiarForm() {
+      $('formProd').reset();
+      $('formProd').elements.id.value = '';
+      $('formTitulo').textContent = 'Agregar producto';
+      $('btnGuardar').textContent = 'Agregar';
+      $('btnCancelarEd').classList.add('hidden');
+    }
+    $('btnCancelarEd').onclick = limpiarForm;
+
+    $('formProd').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const datos = Object.fromEntries(new FormData(e.target));
+      const id = datos.id;
+      delete datos.id;
+      try {
+        if (id) await api(`/api/products/${id}`, { method: 'PUT', body: datos });
+        else await api('/api/products', { method: 'POST', body: datos });
+        toast(id ? 'Producto actualizado' : 'Producto agregado al menú');
+        limpiarForm();
+        cargarInventario();
+      } catch (err) { toast(err.message); }
+    });
+
+    // ---------- Pedidos ----------
+    async function cargarPedidos() {
+      const lista = (await api('/api/orders?today=1')).sort((a, b) => b.id - a.id);
+      $('tablaPedidos').innerHTML = lista.length
+        ? lista.map((o) => `
+          <tr>
+            <td>${o.id}</td><td>${hora(o.createdAt)}</td><td>${o.table}</td>
+            <td class="small">${o.items.map((l) => `${l.qty}× ${esc(l.name)}`).join(', ')}</td>
+            <td>${money(o.total)}</td>
+            <td class="small">${PAGOS[o.paymentMethod]} ${o.paid ? '✅' : ''}</td>
+            <td><span class="badge st-${o.status}">${ESTADOS[o.status]}</span></td>
+          </tr>`).join('')
+        : '<tr><td colspan="7" class="muted">Aún no hay pedidos hoy.</td></tr>';
+    }
+
+    // ---------- QR ----------
+    async function cargarQR() {
+      config = await api('/api/config');
+      $('nombreRest').textContent = config.restaurantName;
+      $('formAjustes').elements.restaurantName.value = config.restaurantName;
+      $('formAjustes').elements.tables.value = config.tables;
+      $('baseUrl').textContent = config.baseUrl;
+      const v = Date.now();
+      $('qrGrid').innerHTML = Array.from({ length: config.tables }, (_, i) => i + 1).map((n) => `
+        <div class="card qr-card">
+          <strong>${esc(config.restaurantName)}</strong>
+          <img src="/api/qr/${n}?v=${v}" alt="QR mesa ${n}" loading="lazy" />
+          <div style="font-size:1.4rem;font-weight:800">Mesa ${n}</div>
+          <div class="muted small">Escanea para ver el menú y pedir</div>
+          <a class="small no-print" href="/menu.html?mesa=${n}" target="_blank">Abrir menú de esta mesa</a>
+        </div>`).join('');
+    }
+
+    $('formAjustes').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/settings', { method: 'PUT', body: Object.fromEntries(new FormData(e.target)) });
+        toast('Configuración guardada');
+        cargarQR();
+      } catch (err) { toast(err.message); }
+    });
+
+    // ---------- Usuarios / sesión ----------
+    let yo = null;
+    async function cargarUsuarios() {
+      const lista = await api('/api/users');
+      const opciones = (rol) => Object.entries(ROLES_TXT)
+        .map(([v, t]) => `<option value="${v}" ${v === rol ? 'selected' : ''}>${t}</option>`).join('');
+      $('listaUsuarios').innerHTML = lista.length ? lista.map((u) => {
+        const soyYo = u.id === yo?.id;
+        return `
+        <div class="usuario" data-id="${u.id}" data-name="${esc(u.name)}">
+          <div class="row between wrap">
+            <div><strong>${esc(u.name)}</strong> <span class="muted small">usuario: ${esc(u.username)}</span>
+              ${soyYo ? '<span class="badge st-listo">Tú</span>' : ''}</div>
+            ${soyYo
+              ? `<span class="small">${ROLES_TXT[u.role]}</span>`
+              : `<select class="rol" style="width:auto">${opciones(u.role)}</select>`}
+          </div>
+          ${soyYo ? '' : `
+          <div class="row wrap" style="margin-top:6px">
+            <button class="btn btn-sm" data-acc="clave">🔑 Nueva contraseña</button>
+            <button class="btn btn-sm btn-danger" data-acc="borrarUsuario">Quitar acceso</button>
+          </div>
+          <form class="row hidden form-clave" style="margin-top:6px">
+            <input type="password" minlength="8" maxlength="128" required placeholder="Nueva contraseña (mín. 8)" autocomplete="new-password" />
+            <button class="btn btn-sm btn-primary" type="submit">Guardar</button>
+          </form>`}
+        </div>`;
+      }).join('') : '<p class="muted">Aún no hay personal registrado.</p>';
+    }
+
+    // Cambiar rol
+    $('listaUsuarios').addEventListener('change', async (e) => {
+      if (!e.target.classList.contains('rol')) return;
+      const fila = e.target.closest('[data-id]');
+      try {
+        await api(`/api/users/${fila.dataset.id}`, { method: 'PATCH', body: { role: e.target.value } });
+        toast(`${fila.dataset.name} ahora es ${ROLES_TXT[e.target.value]}`);
+      } catch (err) { toast(err.message); }
+      cargarUsuarios();
+    });
+
+    // Quitar acceso / mostrar formulario de contraseña
+    $('listaUsuarios').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-acc]');
+      if (!btn) return;
+      const fila = btn.closest('[data-id]');
+      if (btn.dataset.acc === 'clave') {
+        const f = fila.querySelector('.form-clave');
+        f.classList.toggle('hidden');
+        if (!f.classList.contains('hidden')) f.querySelector('input').focus();
+        return;
+      }
+      if (!btn.dataset.confirm) { btn.dataset.confirm = '1'; btn.textContent = '¿Seguro?'; return; }
+      try {
+        await api(`/api/users/${fila.dataset.id}`, { method: 'DELETE' });
+        toast(`Se quitó el acceso a ${fila.dataset.name}`);
+        cargarUsuarios();
+      } catch (err) { toast(err.message); }
+    });
+
+    // Restablecer contraseña de otra persona
+    $('listaUsuarios').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fila = e.target.closest('[data-id]');
+      try {
+        await api(`/api/users/${fila.dataset.id}`, { method: 'PATCH', body: { password: e.target.querySelector('input').value } });
+        toast(`Contraseña de ${fila.dataset.name} cambiada`);
+        cargarUsuarios();
+      } catch (err) { toast(err.message); }
+    });
+
+    $('formUsuario').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const u = await api('/api/users', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        toast(`${u.name} agregado como ${ROLES_TXT[u.role]}`);
+        e.target.reset();
+        cargarUsuarios();
+      } catch (err) { toast(err.message); }
+    });
+
+    $('formClave').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      if (d.password !== d.password2) return toast('Las contraseñas nuevas no coinciden');
+      try {
+        await api('/api/auth/password', { method: 'POST', body: { current: d.current, password: d.password } });
+        toast('Contraseña cambiada ✅');
+        e.target.reset();
+      } catch (err) { toast(err.message); }
+    });
+
+    $('salir').onclick = async () => {
+      try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+      location.href = '/login.html';
+    };
+
+    api('/api/auth/me').then((r) => { yo = r.user; $('usuarioNombre').textContent = r.user.name; }).catch(() => {});
+
+    // ---------- Tiempo real ----------
+    const socket = io();
+    let t;
+    const refrescarLuego = () => { clearTimeout(t); t = setTimeout(refrescar, 300); };
+    socket.on('order:new', refrescarLuego);
+    socket.on('order:updated', refrescarLuego);
+    socket.on('inventory:changed', () => { if (tabActual !== 'inventario' || !$('formProd').elements.id.value) refrescarLuego(); });
+
+    api('/api/config').then((c) => ($('nombreRest').textContent = c.restaurantName));
+    refrescar();
+  </script>
+</body>
+</html>
